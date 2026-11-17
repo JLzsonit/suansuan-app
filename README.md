@@ -1,3 +1,6 @@
+<!-- dl-banner -->
+> **下载安装**：[下载 APK（v1.0.0）](https://github.com/JLzsonit/suansuan-app/releases/latest) · debug 构建，纯本地
+
 # 算算星球
 
 儿童三科（数学 / 语文 / 英语）学习练习 App，基于 uni-app（Vue3 + Vite），纯本地存储、无需账号，自用版本。
