@@ -3,6 +3,18 @@
 
 # 算算星球
 
+<!-- bilingual-intro -->
+**中文**：面向 1–6 年级的三科（数学 / 语文 / 英语）练习 App：按年级课标出题，含错题本、每日打卡、限时挑战等小游戏与家长控制。纯本地存储、无需账号、不联网，用 uni-app（Vue3 + Vite）构建。
+
+**English**: An offline practice app for grades 1–6 covering math, Chinese and English. Grade-aware question generation, mistake notebook, daily streaks, mini games and parental controls. Built with uni-app (Vue3 + Vite); all data stays on device, no account and no network.
+
+| 项目 / Item | 说明 / Note |
+|---|---|
+| 平台 / Platform | Android（H5 亦可）/ Android, H5 available |
+| 安装 / Install | [Releases](https://github.com/JLzsonit/suansuan-app/releases/latest) · APK（debug 构建）/ APK (debug build) |
+| 许可证 / License | 未声明 / Not specified |
+
+
 儿童三科（数学 / 语文 / 英语）学习练习 App，基于 uni-app（Vue3 + Vite），纯本地存储、无需账号，自用版本。
 
 ## 功能
