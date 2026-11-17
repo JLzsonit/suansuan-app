@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 无障碍服务配置
+     ⚠ 本文件直接决定「系统设置里这个开关能不能打开 / 打开了能不能收到事件」，
+     几项关键值已按可正常启用的参考应用（应用锁 5.6.6，targetSdk 31）逐项对齐：
+
+     1) accessibilityEventTypes 增加 typeWindowsChanged
+        原来只有 typeWindowStateChanged。不少 ROM 在「同一个 Activity 内换页」时只发
+        TYPE_WINDOWS_CHANGED，不发 TYPE_WINDOW_STATE_CHANGED，表现为开关能开但拉回不生效。
+
+     2) canRetrieveWindowContent="true" + flagRetrieveInteractiveWindows
+        系统与部分 ROM 会按这两项判定该服务是否是「可用的窗口监听服务」；
+        声明 canRetrieveWindowContent="false" 时，某些机型设置页会把开关处理成不可用。
+        本服务只读包名、不读页面内容，但声明为 true 才与主流无障碍应用一致。
+
+     3) isAccessibilityTool="true"（Android 14+ 起生效）
+        系统据此区分「无障碍工具」与「自动化工具」。未声明时：
+        - Android 14+ 每次启用都会弹「非无障碍工具」风险提示；
+        - Android 16 开启「高级保护」后，非无障碍工具的无障碍服务会被直接禁止启用。
+        本应用是家长控制类工具（Google 政策允许家长/监护人授权的场景使用无障碍 API），
+        这里声明为 true 可避免被上述限制误伤。若将来上架 Google Play，需要按 Play 政策申报。
+
+     4) notificationTimeout 保持 100ms：窗口切换要立刻响应，不能拖。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/kiosk_desc"
+    android:notificationTimeout="100"
+    android:isAccessibilityTool="true" />

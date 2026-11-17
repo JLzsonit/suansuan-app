@@ -1,0 +1,990 @@
+<template>
+  <view class="page" :class="{ eye: eyeCare }">
+    <view class="nav">
+      <view class="nav-row">
+        <text class="brand">算算星球</text>
+        <text class="streak" v-if="streak > 0">🔥 连续 {{ streak }} 天</text>
+      </view>
+      <text class="sub">今天已练 {{ today.n }} 题 · 答对 {{ today.right }} 题</text>
+    </view>
+
+    <!-- 锁定开着但无障碍被系统关了：这是锁定失效最常见的原因 -->
+    <view class="kiosk-warn" v-if="lockWarn" @click="goA11ySettings">
+      <text class="kw-icon">⚠️</text>
+      <view class="kw-main">
+        <text class="kw-t">专注锁定现在没生效</text>
+        <text class="kw-d">没开无障碍、也没开备用监控，孩子切走不会被拉回。点这里开一种</text>
+      </view>
+      <text class="kw-go">去开启 ›</text>
+    </view>
+
+    <view class="watch-card" v-if="watchOn">
+      <view class="watch-live" v-if="unlockLeftMin > 0">
+        <text class="watch-live-icon">🍿</text>
+        <view class="watch-live-main">
+          <text class="watch-live-title">自由时间</text>
+          <text class="watch-live-left">还剩 {{ unlockLeftMin }} 分钟</text>
+        </view>
+        <text class="watch-live-pct">赚 {{ watchEarn }} 分</text>
+      </view>
+      <view class="watch-stats">
+        <view class="watch-cell">
+          <text class="watch-num">{{ Math.round(watchUsed) }}</text>
+          <text class="watch-label">今日已用(分钟)</text>
+        </view>
+        <view class="watch-cell">
+          <text class="watch-num">{{ Math.round(watchLeft) }}</text>
+          <text class="watch-label">还能用(分钟)</text>
+        </view>
+        <view class="watch-cell">
+          <text class="watch-num">{{ Math.round(watchEarn) }}</text>
+          <text class="watch-label">做题赚的(分钟)</text>
+        </view>
+      </view>
+      <!-- 两种赚时间的方式：每日任务（一天一次）/ 挑战赛（不限次） -->
+      <view class="watch-modes">
+        <view class="wm-card" :class="{ off: dailyP.claimed }" @click="startDaily">
+          <text class="wm-icon">📅</text>
+          <view class="wm-main">
+            <text class="wm-title">每日任务 · {{ wr.dailyQ }}题换{{ wr.dailyMin }}分钟</text>
+            <text class="wm-sub">{{ dailyP.claimed ? '今日已完成 ✓ 明天再来' : `已做 ${dailyP.done}/${wr.dailyQ} 题` }}</text>
+          </view>
+        </view>
+        <view class="wm-card" @click="startChallenge">
+          <text class="wm-icon">🏆</text>
+          <view class="wm-main">
+            <text class="wm-title">挑战赛 · {{ wr.chalQ }}题换{{ wr.chalMin }}分钟</text>
+            <text class="wm-sub">之后每题 +{{ wr.perQ }} 分钟 · 今日已做 {{ chalDone }} 题</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <scroll-view scroll-y class="body" :show-scrollbar="false">
+      <view class="hero" @click="startGrade">
+        <view class="hero-deco">✨</view>
+        <text class="hero-title">{{ gradeSel ? gradeName + '综合练习' : '今天想练点什么？' }}</text>
+        <text class="hero-sub" v-if="gradeSel">点这里一键开练，题型难度都按 {{ gradeName }} 课标来</text>
+        <text class="hero-sub" v-else>点卡片就能直接开始练习</text>
+        <view class="goal">
+          <view class="goal-bar">
+            <view class="goal-fill" :style="{ width: goalPct + '%' }"></view>
+          </view>
+          <text class="goal-text">今日目标 {{ settings.dailyGoal }} 题，已完成 {{ goalPct }}%</text>
+        </view>
+      </view>
+
+      <!-- 学段闯关：直接外显，点一下直达对应学段 -->
+      <view class="sec-title stages-title">
+        <text class="sec-emoji">🏅</text>
+        学段闯关 · {{ TOTAL_POINTS }} 个知识点
+      </view>
+      <view class="stage-chips">
+        <view
+          v-for="s in STAGES"
+          :key="s.key"
+          class="schip"
+          @click="goStage(s.key)"
+        >
+          <text class="schip-icon">{{ s.icon }}</text>
+          <text class="schip-name">{{ s.name }}</text>
+        </view>
+      </view>
+
+      <view class="sec-title">
+        年级
+        <text class="lock-chip" v-if="gradeLocked">🔒 家长设定</text>
+      </view>
+      <view class="grade-lock" v-if="gradeLocked">
+        <text class="gl-main">只能做{{ gradeName || '全部年级' }}的题</text>
+        <text class="gl-sub" v-if="gradeNextUp">📅 {{ gradeNextUp.slice(0, 4) }} 年 9 月 1 日自动升一级</text>
+        <text class="gl-sub" v-else>想换年级，请让爸爸妈妈在家长端修改</text>
+      </view>
+      <view class="grade-pills">
+        <view
+          class="gpill"
+          :class="{ active: gradeSel === 0, locked: gradeLocked && gradeSel !== 0 }"
+          @click="selectGrade(0)"
+        >
+          全部
+        </view>
+        <view
+          v-for="g in GRADES"
+          :key="g.key"
+          class="gpill"
+          :class="{ active: gradeSel === g.key, locked: gradeLocked && gradeSel !== g.key }"
+          @click="selectGrade(g.key)"
+        >
+          {{ g.emoji }} {{ g.name }}
+        </view>
+      </view>
+
+      <template v-for="g in viewGroups" :key="g.key">
+        <view class="sec-title">
+          <text class="sec-emoji">{{ g.emoji }}</text>
+          {{ g.name }}
+        </view>
+        <view class="modes">
+          <view
+            v-for="m in g.modes"
+            :key="m.key"
+            class="mode"
+            :class="{ active: mode === m.key }"
+            @click="selectMode(m)"
+          >
+            <view class="mode-pic">
+              <image class="mode-img" :src="m.img || g.img" mode="aspectFill" />
+              <text class="tick" v-if="mode === m.key">✓</text>
+            </view>
+            <view class="mode-info">
+              <text class="mode-name">{{ m.name }}</text>
+              <text class="mode-desc">{{ m.desc }}</text>
+            </view>
+          </view>
+        </view>
+      </template>
+
+      <template v-for="g in lemiaoView" :key="g.key">
+        <view class="sec-title">
+          <text class="sec-emoji">{{ g.icon }}</text>
+          {{ g.name }}
+        </view>
+        <text class="sec-desc">{{ g.desc }}</text>
+        <view class="modes">
+          <view
+            v-for="a in g.acts"
+            :key="a.key"
+            class="mode"
+            @click="startLemiao(a)"
+          >
+            <view class="mode-pic">
+              <text class="mode-fallback">{{ a.icon || '⭐' }}</text>
+              <image class="mode-img" :src="a.img" mode="aspectFill" lazy-load />
+            </view>
+            <view class="mode-info">
+              <text class="mode-name">{{ a.name }}</text>
+              <text class="mode-desc">{{ a.desc }}</text>
+            </view>
+          </view>
+        </view>
+      </template>
+
+      <template v-if="openView.length">
+        <view class="sec-title">
+          <text class="sec-emoji">🎓</text>
+          题了个题 · 开放题库
+        </view>
+        <text class="sec-desc">来自开源项目 StudyOnTV 的精选题库（50 题）</text>
+        <view class="modes">
+          <view
+            v-for="b in openView"
+            :key="b.key"
+            class="mode"
+            @click="startOpen(b.key)"
+          >
+            <view class="mode-pic">
+              <text class="mode-fallback">{{ b.icon }}</text>
+            </view>
+            <view class="mode-info">
+              <text class="mode-name">{{ b.name }}</text>
+              <text class="mode-desc">{{ b.desc }}</text>
+            </view>
+          </view>
+        </view>
+      </template>
+
+      <template v-if="!isLang">
+        <view class="sec-title">难度</view>
+        <view class="pills">
+          <view
+            v-for="l in availLevels"
+            :key="l.key"
+            class="pill"
+            :class="{ active: difficulty === l.key }"
+            @click="difficulty = l.key"
+          >
+            {{ l.name }}
+          </view>
+        </view>
+      </template>
+
+      <view class="sec-title">这一组做几题</view>
+      <view class="pills">
+        <view
+          v-for="c in COUNTS"
+          :key="c"
+          class="pill"
+          :class="{ active: count === c }"
+          @click="count = c"
+        >
+          {{ c }} 题
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</template>
+
+<script setup>
+import { ref, computed, onUnmounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import { GROUPS, GRADES, LEVELS, COUNTS, modeOf } from '@/common/questions'
+import { LEMIAO_GROUPS } from '@/common/lemiao'
+import { STAGES, TOTAL_POINTS } from '@/common/stages'
+import { OPEN_BANKS } from '@/common/openbank'
+import { sfx } from '@/common/sound'
+import { getSettings, saveSettings, getToday, getStreak, getUnlockUntil, getWatchRules, getWatchUsed, getWatchEarned, watchAvailable, getDailyProgress, getChallengeDone, getGradeInfo, getActiveGrade } from '@/common/store'
+import { isEnabled as kioskEnabled, a11yStatus, watchdogStatus } from '@/common/kiosk'
+
+const gradeSel = ref(1)
+// 家长设定年级：锁定后孩子只能做该年级的题，且每学年 9 月 1 日自动升一级
+const gradeLocked = ref(false)
+const gradeNextUp = ref('')
+{
+  const gi = getGradeInfo()
+  gradeLocked.value = gi.locked
+  gradeNextUp.value = gi.nextUpAt
+  gradeSel.value = getActiveGrade()
+  if (gradeSel.value === undefined || gradeSel.value === null) gradeSel.value = 1
+}
+const mode = ref('add')
+const difficulty = ref(1)
+const count = ref(10)
+
+// 当前年级下可见的模式（带推荐难度）；0 = 全部
+// 数学模式按年级课表过滤；语文/英语按自身 grades 过滤；英语仅 3 年级及以上；趣味游戏始终可见
+const viewGroups = computed(() => {
+  const grade = gradeSel.value
+  if (!grade) return GROUPS
+  const rec = new Map(GRADES.find((g) => g.key === grade).items)
+  const out = []
+  for (const g of GROUPS) {
+    if (g.key === 'game') {
+      out.push(g)
+      continue
+    }
+    if (g.key === 'cn' || g.key === 'en') {
+      if (g.key === 'en' && grade < 3) continue
+      const modes = g.modes.filter((m) => !m.grades || m.grades.includes(grade))
+      if (modes.length) out.push({ ...g, modes })
+      continue
+    }
+    const modes = g.modes
+      .filter((m) => rec.has(m.key))
+      .map((m) => ({ ...m, rec: rec.get(m.key) }))
+    if (modes.length) out.push({ ...g, modes })
+  }
+  return out
+})
+
+const isLang = computed(() => {
+  const m = modeOf(mode.value)
+  return !!(m && m.lang)
+})
+
+// 乐喵题卡：7 大分组 105 张，按年级过滤（0=全部）
+const LEMIAO_ICONS = {
+  'number-sense': '🌈',
+  'number-composition': '🧩',
+  'basic-calculation': '📝',
+  'advanced-calculation': '🚀',
+  'patterns-reasoning': '🔮',
+  'geometry-figures': '🔺',
+  'measurement-life': '📏'
+}
+const lemiaoView = computed(() => {
+  const grade = gradeSel.value
+  const out = []
+  for (const g of LEMIAO_GROUPS) {
+    const acts = grade ? g.acts.filter((a) => a.grades.includes(grade)) : g.acts
+    if (acts.length) out.push({ key: g.key, name: g.name, desc: g.desc, icon: LEMIAO_ICONS[g.key] || '⭐', acts })
+  }
+  return out
+})
+
+function startLemiao(a) {
+  uni.navigateTo({
+    url: `/pages/practice/index?source=lemiao&key=${a.key}&count=${count.value}`
+  })
+  sfx('start')
+}
+
+// 题了个题开放题库
+const openView = Object.values(OPEN_BANKS).map((b) => ({
+  key: b.key,
+  name: b.name,
+  icon: b.icon,
+  desc: b.desc
+}))
+
+function startOpen(bankKey) {
+  uni.navigateTo({
+    url: `/pages/practice/index?source=open&key=${bankKey}&count=${count.value}`
+  })
+  sfx('start')
+}
+
+const availLevels = computed(() => {
+  const m = modeOf(mode.value)
+  return LEVELS.filter((l) => !m || !m.levels || m.levels.includes(l.key))
+})
+
+function applyMode(m) {
+  mode.value = m.key
+  if (m.rec) {
+    difficulty.value = m.rec
+  } else if (m.levels && !m.levels.includes(difficulty.value)) {
+    difficulty.value = m.levels[0]
+  }
+}
+
+function selectMode(m) {
+  applyMode(m)
+  // 点卡片直接开练（不用再按底部按钮）
+  start()
+}
+
+function selectGrade(k) {
+  if (gradeLocked.value) {
+    uni.showModal({
+      title: '年级由家长设定',
+      content: `现在是${gradeName.value || '全部年级'}。想换年级，请让爸爸妈妈在手机上的「算算星球家长」里修改。`,
+      showCancel: false,
+      confirmText: '知道了'
+    })
+    return
+  }
+  gradeSel.value = k
+  saveSettings({ grade: k })
+  // 切年级后当前模式若不在该年级，选该年级第一个模式
+  const all = viewGroups.value.flatMap((g) => g.modes)
+  const cur = all.find((m) => m.key === mode.value)
+  applyMode(cur || all[0])
+}
+
+const settings = ref(getSettings())
+const today = ref(getToday())
+const streak = ref(0)
+
+const eyeCare = computed(() => settings.value.eyeCare)
+const gradeName = computed(() => {
+  const g = GRADES.find((x) => x.key === gradeSel.value)
+  return g ? g.name : ''
+})
+const goalPct = computed(() => {
+  const goal = settings.value.dailyGoal || 20
+  return Math.min(100, Math.round((today.value.n / goal) * 100))
+})
+
+onShow(() => {
+  settings.value = getSettings()
+  today.value = getToday()
+  streak.value = getStreak()
+  checkLockAlive()
+  // 家长端可能刚改过年级（或到了 9 月 1 日自动升级），回前台以家长设定为准
+  const gi = getGradeInfo()
+  gradeLocked.value = gi.locked
+  gradeNextUp.value = gi.nextUpAt
+  if (gi.locked && gradeSel.value !== gi.grade) {
+    gradeSel.value = gi.grade
+    const all = viewGroups.value.flatMap((g) => g.modes)
+    if (!all.find((m) => m.key === mode.value) && all[0]) applyMode(all[0])
+  }
+  refreshUnlock()
+  refreshWatch()
+})
+
+// 锁定开着、无障碍服务被系统关掉时提醒家长（Android 13+ 装新版本后很常见）
+const lockWarn = ref(false)
+async function checkLockAlive() {
+  try {
+    if (!(await kioskEnabled())) {
+      lockWarn.value = false
+      return
+    }
+    const st = await a11yStatus()
+    if (st.on) {
+      lockWarn.value = false
+      return
+    }
+    // 无障碍没开时，看备用监控有没有顶上
+    const w = await watchdogStatus()
+    lockWarn.value = !w.on
+  } catch (e) {
+    lockWarn.value = false
+  }
+}
+function goA11ySettings() {
+  uni.navigateTo({ url: '/pages/settings/index' })
+}
+
+// 先学再看：观看时间卡（今日已看 / 还能看 / 做题赚的 + 每日任务/挑战赛入口）
+const watchOn = ref(false)
+const watchUsed = ref(0)
+const watchEarn = ref(0)
+const watchLeft = ref(0)
+const wr = ref({ on: false, dailyQ: 30, dailyMin: 30, chalQ: 20, chalMin: 30, perQ: 1 })
+const dailyP = ref({ done: 0, need: 30, claimed: false })
+const chalDone = ref(0)
+function refreshWatch() {
+  const r = getWatchRules()
+  watchOn.value = !!r.on
+  wr.value = r
+  watchUsed.value = getWatchUsed()
+  watchEarn.value = getWatchEarned()
+  watchLeft.value = watchAvailable()
+  dailyP.value = getDailyProgress()
+  chalDone.value = getChallengeDone()
+}
+
+// 每日任务 / 挑战赛入口：按当前年级随机出题
+function startDaily() {
+  if (dailyP.value.claimed) {
+    uni.showToast({ title: '今日每日任务已完成，明天再来', icon: 'none' })
+    return
+  }
+  uni.navigateTo({
+    url: `/pages/practice/index?source=daily&count=${wr.value.dailyQ || 30}&grade=${gradeSel.value || 1}`
+  })
+}
+function startChallenge() {
+  uni.navigateTo({
+    url: `/pages/practice/index?source=challenge&count=${wr.value.chalQ || 20}&grade=${gradeSel.value || 1}`
+  })
+}
+
+// 自由时间倒计时横幅
+const now = ref(Date.now())
+let unlockTick = null
+const unlockUntil = ref(0)
+const unlockLeftMin = computed(() => {
+  if (!unlockUntil.value) return 0
+  return Math.max(0, Math.ceil((unlockUntil.value - now.value) / 60000))
+})
+function refreshUnlock() {
+  unlockUntil.value = getUnlockUntil()
+  if (unlockUntil.value > Date.now() && !unlockTick) {
+    unlockTick = setInterval(() => {
+      now.value = Date.now()
+      if (now.value >= unlockUntil.value) {
+        clearInterval(unlockTick)
+        unlockTick = null
+        unlockUntil.value = 0
+      }
+    }, 15000)
+  }
+}
+onUnmounted(() => {
+  if (unlockTick) clearInterval(unlockTick)
+})
+
+const GAME_KEYS = ['balloon', 'match', 'racer', 'balance', 'memory']
+
+function start() {
+  // 趣味游戏跳独立页面
+  if (GAME_KEYS.includes(mode.value)) {
+    uni.navigateTo({
+      url: `/pages/${mode.value}/index?difficulty=${difficulty.value}&count=${count.value}&grade=${gradeSel.value || 0}`
+    })
+    return
+  }
+  uni.navigateTo({
+    url: `/pages/practice/index?mode=${mode.value}&difficulty=${difficulty.value}&count=${count.value}`
+  })
+}
+
+function goStage(key) {
+  uni.navigateTo({
+    url: `/pages/stages/index?stage=${key}&grade=${gradeSel.value || 0}`
+  })
+}
+
+function startGrade() {
+  if (!gradeSel.value) return
+  uni.navigateTo({
+    url: `/pages/practice/index?source=grade&grade=${gradeSel.value}&count=${count.value}`
+  })
+}
+</script>
+
+<style scoped>
+.page {
+  height: 100vh;
+  box-sizing: border-box;
+  padding-top: calc(max(env(safe-area-inset-top), var(--status-bar-height, 0px)) + 24rpx);
+  background: #fff9f0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.page.eye {
+  background: #ffeecb;
+}
+
+.nav {
+  padding: 8rpx 40rpx 0;
+}
+.kiosk-warn {
+  display: flex;
+  align-items: center;
+  margin: 18rpx 32rpx 0;
+  padding: 20rpx 22rpx;
+  border-radius: 20rpx;
+  background: #fff2e8;
+  border: 2rpx solid #ffd3b5;
+}
+.kw-icon {
+  font-size: 32rpx;
+  margin-right: 14rpx;
+}
+.kw-main {
+  flex: 1;
+  min-width: 0;
+}
+.kw-t {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #d9531f;
+}
+.kw-d {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: #b08064;
+  line-height: 1.5;
+}
+.kw-go {
+  flex: none;
+  margin-left: 12rpx;
+  font-size: 23rpx;
+  font-weight: 800;
+  color: #e2622a;
+}
+.nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  font-size: 44rpx;
+  font-weight: 800;
+  color: #332c26;
+  letter-spacing: 2rpx;
+}
+.streak {
+  font-size: 24rpx;
+  color: #ff7a3d;
+  background: #ffe7d6;
+  padding: 8rpx 18rpx;
+  border-radius: 100rpx;
+  font-weight: 600;
+}
+.sub {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  color: #a79c92;
+}
+
+.watch-card {
+  margin: 16rpx 40rpx 0;
+  background: linear-gradient(135deg, #eafaf1, #ddf3e7);
+  border: 3rpx solid #bfe8cf;
+  border-radius: 24rpx;
+  padding: 20rpx 24rpx;
+}
+.watch-live {
+  display: flex;
+  align-items: center;
+  padding-bottom: 16rpx;
+  border-bottom: 2rpx dashed #bfe8cf;
+  margin-bottom: 16rpx;
+}
+.watch-live-icon {
+  font-size: 44rpx;
+  margin-right: 16rpx;
+}
+.watch-live-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.watch-live-title {
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #2e8b57;
+}
+.watch-live-left {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  color: #4c8a68;
+}
+.watch-live-pct {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #2e8b57;
+  background: #fff;
+  border-radius: 100rpx;
+  padding: 8rpx 18rpx;
+}
+.watch-stats {
+  display: flex;
+}
+.watch-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.watch-modes {
+  margin-top: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+.wm-card {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #ffffff;
+  border: 3rpx solid #ffe3cd;
+  border-radius: 20rpx;
+  padding: 18rpx 20rpx;
+}
+.wm-card:active {
+  background: #fff3e8;
+}
+.wm-card.off {
+  opacity: 0.55;
+}
+.wm-icon {
+  font-size: 40rpx;
+}
+.wm-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.wm-title {
+  font-size: 27rpx;
+  font-weight: 800;
+  color: #332c26;
+}
+.wm-sub {
+  font-size: 22rpx;
+  color: #a08f80;
+}
+.watch-num {
+  font-size: 40rpx;
+  font-weight: 800;
+  color: #2e8b57;
+}
+.watch-label {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #6fa98a;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0 40rpx 40rpx;
+}
+
+.hero {
+  position: relative;
+  margin-top: 32rpx;
+  background: linear-gradient(135deg, #ffb27a 0%, #ff7a3d 100%);
+  border-radius: 40rpx;
+  padding: 40rpx 36rpx 34rpx;
+  box-shadow: 0 18rpx 40rpx rgba(255, 122, 61, 0.28);
+  overflow: hidden;
+}
+
+/* 学段直达 chips */
+.stages-title {
+  margin-top: 40rpx;
+}
+.stage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.schip {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border-radius: 100rpx;
+  padding: 14rpx 26rpx 14rpx 18rpx;
+  box-shadow: 0 6rpx 18rpx rgba(180, 150, 120, 0.1);
+  border: 3rpx solid #ffe9d2;
+}
+.schip:active {
+  transform: scale(0.95);
+}
+.schip-icon {
+  font-size: 30rpx;
+  margin-right: 8rpx;
+}
+.schip-name {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #6d6157;
+}
+.hero-deco {
+  position: absolute;
+  right: 24rpx;
+  top: 14rpx;
+  font-size: 90rpx;
+  opacity: 0.25;
+}
+.hero-title {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 800;
+  color: #fff;
+}
+.hero-sub {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 25rpx;
+  color: rgba(255, 255, 255, 0.9);
+}
+.goal {
+  margin-top: 34rpx;
+}
+.goal-bar {
+  height: 16rpx;
+  border-radius: 100rpx;
+  background: rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+}
+.goal-fill {
+  height: 100%;
+  border-radius: 100rpx;
+  background: #fff;
+}
+.goal-text {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.sec-title {
+  margin: 44rpx 0 20rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #332c26;
+  display: flex;
+  align-items: center;
+}
+.sec-emoji {
+  margin-right: 10rpx;
+  font-size: 32rpx;
+}
+.sec-desc {
+  display: block;
+  margin: -8rpx 0 20rpx;
+  font-size: 22rpx;
+  color: #b3a897;
+  line-height: 1.5;
+}
+
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.mode {
+  position: relative;
+  width: 48%;
+  box-sizing: border-box;
+  background: #fff;
+  border: 3rpx solid #fff;
+  border-radius: 32rpx;
+  padding: 14rpx 14rpx 20rpx;
+  margin-bottom: 22rpx;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8rpx 24rpx rgba(180, 150, 120, 0.1);
+}
+.mode.active {
+  border-color: #ff7a3d;
+  background: #fff6ee;
+  box-shadow: 0 12rpx 28rpx rgba(255, 122, 61, 0.18);
+}
+.mode-pic {
+  position: relative;
+  height: 180rpx;
+  border-radius: 24rpx;
+  overflow: hidden;
+  background: #fff3e6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mode-fallback {
+  font-size: 90rpx;
+}
+.mode-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.mode-pic .tick {
+  position: absolute;
+  right: 12rpx;
+  top: 10rpx;
+  width: 44rpx;
+  height: 44rpx;
+  line-height: 44rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #ff7a3d;
+  color: #fff;
+  font-size: 24rpx;
+  font-weight: 700;
+  box-shadow: 0 4rpx 12rpx rgba(255, 122, 61, 0.4);
+}
+.mode-info {
+  display: flex;
+  flex-direction: column;
+  padding: 14rpx 10rpx 0;
+}
+.mode-name {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #332c26;
+}
+.mode-desc {
+  font-size: 20rpx;
+  color: #a79c92;
+  margin-top: 6rpx;
+}
+
+.grade-pills {
+  display: flex;
+  flex-wrap: wrap;
+}
+/* 家长设定年级：锁定提示 + 其他年级变灰不可点 */
+.lock-chip {
+  margin-left: 14rpx;
+  font-size: 21rpx;
+  font-weight: 600;
+  color: #b07a4e;
+  background: #fff2e6;
+  border-radius: 100rpx;
+  padding: 6rpx 16rpx;
+}
+.grade-lock {
+  background: #fff7ef;
+  border: 1rpx solid #f7e6d3;
+  border-radius: 22rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 20rpx;
+}
+.gl-main {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #a2622c;
+  line-height: 1.5;
+}
+.gl-sub {
+  display: block;
+  font-size: 22rpx;
+  color: #b8967a;
+  margin-top: 6rpx;
+  line-height: 1.5;
+}
+.gpill.locked {
+  opacity: 0.4;
+  box-shadow: none;
+}
+.gpill {
+  margin: 0 16rpx 16rpx 0;
+  padding: 0 30rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #6d6157;
+  background: #fff;
+  border-radius: 100rpx;
+  box-shadow: 0 6rpx 18rpx rgba(180, 150, 120, 0.08);
+}
+.gpill.active {
+  background: #332c26;
+  color: #fff;
+}
+
+.pills {
+  display: flex;
+}
+.pill {
+  flex: 1;
+  margin-right: 18rpx;
+  height: 84rpx;
+  line-height: 84rpx;
+  text-align: center;
+  font-size: 27rpx;
+  color: #6d6157;
+  background: #fff;
+  border-radius: 24rpx;
+  font-weight: 600;
+  box-shadow: 0 6rpx 18rpx rgba(180, 150, 120, 0.08);
+}
+.pill:last-child {
+  margin-right: 0;
+}
+.pill.active {
+  background: #332c26;
+  color: #fff;
+}
+
+/* ===================== 平板/电视横屏适配 ===================== */
+@media (orientation: landscape) and (min-width: 700px) {
+  /* 横屏纵向空间小：允许整页滚动，不再锁 100vh 裁切 */
+  .page {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    padding-top: calc(max(env(safe-area-inset-top), var(--status-bar-height, 0px)) + 12rpx);
+  }
+  /* 顶部信息与观看时间卡横向并排，节省纵向空间 */
+  .watch-card {
+    margin-top: 20rpx;
+  }
+  .watch-stats {
+    padding-top: 4rpx;
+  }
+  /* 功能卡片：宽屏下两列改三列，视觉更均衡 */
+  .modes {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22rpx;
+  }
+  .mode {
+    width: auto;
+    margin-bottom: 0;
+  }
+  /* 学段 chips、年级/难度 pills 横向更宽松 */
+  .stage-chips {
+    gap: 20rpx;
+  }
+  .hero {
+    padding: 44rpx 40rpx 38rpx;
+  }
+  .sec-title {
+    margin: 36rpx 0 18rpx;
+  }
+}
+</style>

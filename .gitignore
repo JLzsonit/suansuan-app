@@ -1,0 +1,49 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+.DS_Store
+dist
+*.local
+
+# Editor directories and files
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# uni-app
+unpackage/
+.hbuilderx/
+
+# Capacitor native build/sync outputs (CI re-syncs)
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/app/src/main/assets/public/
+ios/build/
+ios/App/Pods/
+ios/App/App/public/
+ios/DerivedData/
+
+# 家长端（parent-app）同样的原生构建产物
+parent-app/android/.gradle/
+parent-app/android/app/build/
+parent-app/android/build/
+parent-app/android/local.properties
+parent-app/android/app/src/main/assets/public/
+parent-app/ios/build/
+parent-app/ios/App/Pods/
+parent-app/ios/App/App/public/
+parent-app/ios/DerivedData/
+
+# 三端合并网页站点（构建产物，用 build-web.sh 重新生成）
+web-dist/
